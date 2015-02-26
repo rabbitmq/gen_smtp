@@ -230,12 +230,13 @@ decode_header_tokens_permissive([Data | Tokens], Charset, Stack) ->
 
 
 convert(To, From, Data) ->
-	CD = case iconv:open(To, From) of
+	IconvMod = iconv, %% Fool xref.
+	CD = case IconvMod:open(To, From) of
 			 {ok, Res} -> Res;
 			 {error, einval} -> throw({bad_charset, From})
 		 end,
-	Converted = iconv:conv(CD, Data),
-	iconv:close(CD),
+	Converted = IconvMod:conv(CD, Data),
+	IconvMod:close(CD),
 	Converted.
 
 
@@ -472,14 +473,15 @@ decode_body(Type, Body, _InEncoding, none) ->
 decode_body(Type, Body, undefined, _OutEncoding) ->
 	decode_body(Type, << <<X/integer>> || <<X>> <= Body, X < 128 >>);
 decode_body(Type, Body, InEncoding, OutEncoding) ->
+	IconvMod = iconv, %% Fool xref.
 	NewBody = decode_body(Type, Body),
 	InEncodingFixed = fix_encoding(InEncoding),
-	CD = case iconv:open(OutEncoding, InEncodingFixed) of
+	CD = case IconvMod:open(OutEncoding, InEncodingFixed) of
 		{ok, Res} -> Res;
 		{error, einval} -> throw({bad_charset, InEncodingFixed})
 	end,
-	{ok, Result} = iconv:conv(CD, NewBody),
-	iconv:close(CD),
+	{ok, Result} = IconvMod:conv(CD, NewBody),
+	IconvMod:close(CD),
 	Result.
 
 -spec(decode_body/2 :: (Type :: binary() | 'undefined', Body :: binary()) -> binary()).
