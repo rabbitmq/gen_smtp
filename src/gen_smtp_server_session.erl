@@ -91,7 +91,7 @@
 -callback handle_VRFY(Address :: binary(), State :: state()) ->
     {'ok', string(), state()} | {'error', string(), state()}.
 -callback handle_other(Verb :: binary(), Args :: binary(), state()) ->
-                          {string(), state()} | {'ok', state()}.
+                          {string(), state()} | {'undefined', state()}.
 -callback handle_info(Info :: term(), State :: term()) ->
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
@@ -623,7 +623,7 @@ handle_request({<<"STARTTLS">>, _Args}, #state{socket = Socket} = State) ->
 	{ok, State};
 handle_request({Verb, Args}, #state{socket = Socket, module = Module, callbackstate = OldCallbackState} = State) ->
 	case Module:handle_other(Verb, Args, OldCallbackState) of
-		{ok, CallbackState} ->
+		{undefined, CallbackState} ->
 			{ok, State#state{callbackstate = CallbackState}};
 		{Message, CallbackState} ->
 			socket:send(Socket, [Message, "\r\n"]),
