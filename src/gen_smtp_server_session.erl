@@ -91,7 +91,7 @@
 -callback handle_VRFY(Address :: binary(), State :: state()) ->
     {'ok', string(), state()} | {'error', string(), state()}.
 -callback handle_other(Verb :: binary(), Args :: binary(), state()) ->
-                          {string(), state()} | {'undefined', state()}.
+                          {string() | 'noreply', state()}.
 -callback handle_info(Info :: term(), State :: term()) ->
     {noreply, NewState :: term()} |
     {noreply, NewState :: term(), timeout() | hibernate} |
@@ -100,7 +100,7 @@
 
 %% @doc Start a SMTP session linked to the calling process.
 %% @see start/3
--spec(start_link/3 :: (Socket :: port(), Module :: atom(), Options :: [tuple()]) -> {'ok', pid()} | 'ignore' | {'error', any()}).
+-spec start_link(Socket :: port(), Module :: atom(), Options :: [tuple()]) -> {'ok', pid()} | 'ignore' | {'error', any()}.
 start_link(Socket, Module, Options) ->
 	gen_server:start_link(?MODULE, [Socket, Module, Options], []).
 
@@ -109,12 +109,12 @@ start_link(Socket, Module, Options) ->
 %% via the `socket' module, `Module' is the name of the callback module
 %% implementing the SMTP session behaviour that you'd like to use and `Options'
 %% is the optional arguments provided by the accept server.
--spec(start/3 :: (Socket :: port(), Module :: atom(), Options :: [tuple()]) -> {'ok', pid()} | 'ignore' | {'error', any()}).
+-spec start(Socket :: port(), Module :: atom(), Options :: [tuple()]) -> {'ok', pid()} | 'ignore' | {'error', any()}.
 start(Socket, Module, Options) ->
 	gen_server:start(?MODULE, [Socket, Module, Options], []).
 
 %% @private
--spec(init/1 :: (Args :: list()) -> {'ok', #state{}, ?TIMEOUT} | {'stop', any()} | 'ignore').
+-spec init(Args :: list()) -> {'ok', #state{}, ?TIMEOUT} | {'stop', any()} | 'ignore'.
 init([Socket, Module, Options]) ->
 	{ok, {PeerName, _Port}} = socket:peername(Socket),
 	case Module:init(proplists:get_value(hostname, Options, smtp_util:guess_FQDN()), proplists:get_value(sessioncount, Options, 0), PeerName, proplists:get_value(callbackoptions, Options, [])) of
@@ -236,7 +236,7 @@ handle_info(Info, #state{module=Module, callbackstate = OldCallbackState} = Stat
 	end.
 
 %% @hidden
--spec(terminate/2 :: (Reason :: any(), State :: #state{}) -> 'ok').
+-spec terminate(Reason :: any(), State :: #state{}) -> 'ok'.
 terminate(Reason, State) ->
 	socket:close(State#state.socket),
 	(State#state.module):terminate(Reason, State#state.callbackstate).
@@ -252,7 +252,7 @@ code_change(OldVsn, #state{module = Module} = State, Extra) ->
 		end,
 	{ok, State#state{callbackstate = CallbackState}}.
 
--spec(parse_request/1 :: (Packet :: binary()) -> {binary(), binary()}).
+-spec parse_request(Packet :: binary()) -> {binary(), binary()}.
 parse_request(Packet) ->
 	Request = binstr:strip(binstr:strip(binstr:strip(binstr:strip(Packet, right, $\n), right, $\r), right, $\s), left, $\s),
 	case binstr:strchr(Request, $\s) of
@@ -271,7 +271,7 @@ parse_request(Packet) ->
 			{binstr:to_upper(Verb), Parameters}
 	end.
 
--spec(handle_request/2 :: ({Verb :: binary(), Args :: binary()}, State :: #state{}) -> {'ok', #state{}} | {'stop', any(), #state{}}).
+-spec handle_request({Verb :: binary(), Args :: binary()}, State :: #state{}) -> {'ok', #state{}} | {'stop', any(), #state{}}.
 handle_request({<<>>, _Any}, #state{socket = Socket} = State) ->
 	socket:send(Socket, "500 Error: bad syntax\r\n"),
 	{ok, State};
@@ -622,15 +622,16 @@ handle_request({<<"STARTTLS">>, _Args}, #state{socket = Socket} = State) ->
 	socket:send(Socket, "501 Syntax error (no parameters allowed)\r\n"),
 	{ok, State};
 handle_request({Verb, Args}, #state{socket = Socket, module = Module, callbackstate = OldCallbackState} = State) ->
-	case Module:handle_other(Verb, Args, OldCallbackState) of
-		{undefined, CallbackState} ->
-			{ok, State#state{callbackstate = CallbackState}};
-		{Message, CallbackState} ->
-			socket:send(Socket, [Message, "\r\n"]),
-			{ok, State#state{callbackstate = CallbackState}}
-	end.
+	{Message, CallbackState} = Module:handle_other(Verb, Args, OldCallbackState),
+	maybe_reply(Message, Socket),
+	{ok, State#state{callbackstate = CallbackState}}.
 
--spec(parse_encoded_address/1 :: (Address :: binary()) -> {binary(), binary()} | 'error').
+-spec maybe_reply(Message :: string() | 'noreply', Socket :: socket:socket()) -> 'ok' | {'error', any()}.
+maybe_reply('noreply', _) -> 'ok';
+maybe_reply(Message, Socket) ->
+	socket:send(Socket, [Message, "\r\n"]).
+
+-spec parse_encoded_address(Address :: binary()) -> {binary(), binary()} | 'error'.
 parse_encoded_address(<<>>) ->
 	error; % empty
 parse_encoded_address(<<"<@", Address/binary>>) ->
@@ -647,7 +648,7 @@ parse_encoded_address(<<" ", Address/binary>>) ->
 parse_encoded_address(Address) ->
 	parse_encoded_address(Address, [], {false, false}).
 
--spec(parse_encoded_address/3 :: (Address :: binary(), Acc :: list(), Flags :: {boolean(), boolean()}) -> {binary(), binary()} | 'error').
+-spec parse_encoded_address(Address :: binary(), Acc :: list(), Flags :: {boolean(), boolean()}) -> {binary(), binary()} | 'error'.
 parse_encoded_address(<<>>, Acc, {_Quotes, false}) ->
 	{list_to_binary(lists:reverse(Acc)), <<>>};
 parse_encoded_address(<<>>, _Acc, {_Quotes, true}) ->
@@ -687,7 +688,7 @@ parse_encoded_address(_, _Acc, {false, _AB}) ->
 parse_encoded_address(<<H, Tail/binary>>, Acc, Quotes) ->
 	parse_encoded_address(Tail, [H | Acc], Quotes).
 
--spec(has_extension/2 :: (Extensions :: [{string(), string()}], Extension :: string()) -> {'true', string()} | 'false').
+-spec has_extension(Extensions :: [{string(), string()}], Extension :: string()) -> {'true', string()} | 'false'.
 has_extension(Exts, Ext) ->
 	Extension = string:to_upper(Ext),
 	Extensions = [{string:to_upper(X), Y} || {X, Y} <- Exts],
@@ -700,7 +701,7 @@ has_extension(Exts, Ext) ->
 	end.
 
 
--spec(try_auth/4 :: (AuthType :: 'login' | 'plain' | 'cram-md5', Username :: binary(), Credential :: binary() | {binary(), binary()}, State :: #state{}) -> {'ok', #state{}}).
+-spec try_auth(AuthType :: 'login' | 'plain' | 'cram-md5', Username :: binary(), Credential :: binary() | {binary(), binary()}, State :: #state{}) -> {'ok', #state{}}.
 try_auth(AuthType, Username, Credential, #state{module = Module, socket = Socket, envelope = Envelope, callbackstate = OldCallbackState} = State) ->
 	% clear out waiting auth
 	NewState = State#state{waitingauth = false, envelope = Envelope#envelope{auth = {<<>>, <<>>}}},
@@ -1781,7 +1782,7 @@ smtp_session_tls_test_() ->
 					SSock when is_port(SSock) ->
 						ok
 				end,
-				{ok, Pid} = gen_smtp_server_session:start(SSock, smtp_server_example, [{keyfile, "../testdata/server.key"}, {certfile, "../testdata/server.crt"}, {hostname, "localhost"}, {sessioncount, 1}, {callbackoptions, [{auth, true}]}]),
+				{ok, Pid} = gen_smtp_server_session:start(SSock, smtp_server_example, [{keyfile, "test/fixtures/server.key"}, {certfile, "test/fixtures/server.crt"}, {hostname, "localhost"}, {sessioncount, 1}, {callbackoptions, [{auth, true}]}]),
 				socket:controlling_process(SSock, Pid),
 				{CSock, Pid}
 		end,

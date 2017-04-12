@@ -55,22 +55,26 @@
 
 -export([encode/1, encode/2, decode/2, decode/1, get_header_value/2, get_header_value/3, parse_headers/1]).
 
+-define(DEFAULT_MIME_VERSION, <<"1.0">>).
+
 -define(DEFAULT_OPTIONS, [
 		{encoding, get_default_encoding()}, % default encoding is utf-8 if we can find the iconv module
-		{decode_attachments, true} % should we decode any base64/quoted printable attachments?
+		{decode_attachments, true}, % should we decode any base64/quoted printable attachments?
+		{allow_missing_version, true}, % should we assume default mime version
+		{default_mime_version, ?DEFAULT_MIME_VERSION} % default mime version
 	]).
 
 -type(mimetuple() :: {binary(), binary(), [{binary(), binary()}], [{binary(), binary()}], binary() | [{binary(), binary(), [{binary(), binary()}], [{binary(), binary()}], binary() | [tuple()]}] | tuple()}).
 
 -type(options() :: [{'encoding', binary()} | {'decode_attachment', boolean()}]).
 
--spec(decode/1 :: (Email :: binary()) -> mimetuple()).
+-spec decode(Email :: binary()) -> mimetuple().
 %% @doc Decode a MIME email from a binary.
 decode(All) ->
 	{Headers, Body} = parse_headers(All),
 	decode(Headers, Body, ?DEFAULT_OPTIONS).
 
--spec(decode/2 :: (Email :: binary(), Options :: options()) -> mimetuple()).
+-spec decode(Email :: binary(), Options :: options()) -> mimetuple().
 %% @doc Decode with custom options
 decode(All, Options) when is_binary(All), is_list(Options) ->
 	{Headers, Body} = parse_headers(All),
@@ -83,7 +87,11 @@ decode(OrigHeaders, Body, Options) ->
 	Headers = decode_headers(OrigHeaders, [], Encoding),
 	case parse_with_comments(get_header_value(<<"MIME-Version">>, Headers)) of
 		undefined ->
+			AllowMissingVersion = proplists:get_value(allow_missing_version, Options, false),
 			case parse_content_type(get_header_value(<<"Content-Type">>, Headers)) of
+				{<<"multipart">>, _SubType, _Parameters} when AllowMissingVersion ->
+					MimeVersion = proplists:get_value(default_mime_version, Options, ?DEFAULT_MIME_VERSION),
+					decode_component(Headers, Body, MimeVersion, Options);
 				{<<"multipart">>, _SubType, _Parameters} ->
 					erlang:error(non_mime_multipart);
 				{Type, SubType, Parameters} ->
@@ -98,7 +106,7 @@ decode(OrigHeaders, Body, Options) ->
 			decode_component(Headers, Body, Other, Options)
 	end.
 
--spec(encode/1 :: (MimeMail :: mimetuple()) -> binary()).
+-spec encode(MimeMail :: mimetuple()) -> binary().
 encode(MimeMail) ->
 	encode(MimeMail, []).
 
@@ -240,7 +248,7 @@ convert(To, From, Data) ->
 	Converted.
 
 
-decode_component(Headers, Body, MimeVsn, Options) when MimeVsn =:= <<"1.0">> ->
+decode_component(Headers, Body, MimeVsn = <<"1.0", _/binary>>, Options) ->
 	case parse_content_disposition(get_header_value(<<"Content-Disposition">>, Headers)) of
 		{Disposition, DispositionParams} ->
 			ok;
@@ -276,7 +284,7 @@ decode_component(Headers, Body, MimeVsn, Options) when MimeVsn =:= <<"1.0">> ->
 decode_component(_Headers, _Body, Other, _Options) ->
 	erlang:error({mime_version, Other}).
 
--spec(get_header_value/3 :: (Needle :: binary(), Headers :: [{binary(), binary()}], Default :: any()) -> binary() | any()).
+-spec get_header_value(Needle :: binary(), Headers :: [{binary(), binary()}], Default :: any()) -> binary() | any().
 %% @doc Do a case-insensitive header lookup to return that header's value, or the specified default.
 get_header_value(Needle, Headers, Default) ->
 	%io:format("Headers: ~p~n", [Headers]),
@@ -292,7 +300,7 @@ get_header_value(Needle, Headers, Default) ->
 			Default
 	end.
 
--spec(get_header_value/2 :: (Needle :: binary(), Headers :: [{binary(), binary()}]) -> binary() | 'undefined').
+-spec get_header_value(Needle :: binary(), Headers :: [{binary(), binary()}]) -> binary() | 'undefined'.
 %% @doc Do a case-insensitive header lookup to return the header's value, or `undefined'.
 get_header_value(Needle, Headers) ->
 	get_header_value(Needle, Headers, undefined).
@@ -332,8 +340,8 @@ parse_with_comments(<<$", T/binary>>, Acc, Depth, false) -> %"
 parse_with_comments(<<H, Tail/binary>>, Acc, Depth, Quotes) ->
 	parse_with_comments(Tail, [H | Acc], Depth, Quotes).
 
--spec(parse_content_type/1 :: (Value :: 'undefined') -> 'undefined';
-	(Value :: binary()) -> {binary(), binary(), [{binary(), binary()}]}).
+-spec parse_content_type(Value :: 'undefined') -> 'undefined';
+	(Value :: binary()) -> {binary(), binary(), [{binary(), binary()}]}.
 parse_content_type(undefined) ->
 	undefined;
 parse_content_type(String) ->
@@ -352,8 +360,8 @@ parse_content_type(String) ->
 				throw(bad_content_type)
 	end.
 
--spec(parse_content_disposition/1 :: (Value :: 'undefined') -> 'undefined';
-	(String :: binary()) -> {binary(), [{binary(), binary()}]}).
+-spec parse_content_disposition(Value :: 'undefined') -> 'undefined';
+	(String :: binary()) -> {binary(), [{binary(), binary()}]}.
 parse_content_disposition(undefined) ->
 	undefined;
 parse_content_disposition(String) ->
@@ -402,7 +410,7 @@ split_body_by_boundary_(Body, Boundary, Acc, Options) ->
 									[{DecodedHdrs, BodyRest} | Acc], Options)
 	end.
 
--spec(parse_headers/1 :: (Body :: binary()) -> {[{binary(), binary()}], binary()}).
+-spec parse_headers(Body :: binary()) -> {[{binary(), binary()}], binary()}.
 %% @doc Parse the headers off of a message and return a list of headers and the trailing body.
 parse_headers(Body) ->
 	case binstr:strpos(Body, "\r\n") of
@@ -484,7 +492,7 @@ decode_body(Type, Body, InEncoding, OutEncoding) ->
 	IconvMod:close(CD),
 	Result.
 
--spec(decode_body/2 :: (Type :: binary() | 'undefined', Body :: binary()) -> binary()).
+-spec decode_body(Type :: binary() | 'undefined', Body :: binary()) -> binary().
 decode_body(undefined, Body) ->
 	Body;
 decode_body(Type, Body) ->
@@ -685,6 +693,8 @@ guess_charset(Body) ->
 
 guess_best_encoding(<<Body:200/binary, Rest/binary>>) when Rest =/= <<>> ->
 	guess_best_encoding(Body);
+guess_best_encoding(<<>>) ->
+    <<"7bit">>;
 guess_best_encoding(Body) ->
 	Size = byte_size(Body),
 	% get only the allowed ascii characters
@@ -1251,7 +1261,7 @@ various_parsing_test_() ->
 
 parse_example_mails_test_() ->
 	Getmail = fun(File) ->
-		{ok, Email} = file:read_file(string:concat("../testdata/", File)),
+		{ok, Email} = file:read_file(string:concat("test/fixtures/", File)),
 		%Email = binary_to_list(Bin),
 		decode(Email)
 	end,
@@ -1465,7 +1475,7 @@ parse_example_mails_test_() ->
 		},
 		{"no \\r\\n before first boundary",
 			fun() ->
-				{ok, Bin} = file:read_file("../testdata/html.eml"),
+				{ok, Bin} = file:read_file("test/fixtures/html.eml"),
 				Decoded = decode(Bin),
 				?assertEqual(2, length(element(5, Decoded)))
 			end
@@ -2115,7 +2125,7 @@ roundtrip_test_() ->
 	[
 		{"roundtrip test for the gamut",
 			fun() ->
-					{ok, Email} = file:read_file("../testdata/the-gamut.eml"),
+					{ok, Email} = file:read_file("test/fixtures/the-gamut.eml"),
 					Decoded = decode(Email),
 					_Encoded = encode(Decoded),
 					%{ok, F1} = file:open("f1", [write]),
@@ -2129,7 +2139,7 @@ roundtrip_test_() ->
 		},
 		{"round trip plain text only email",
 			fun() ->
-					{ok, Email} = file:read_file("../testdata/Plain-text-only.eml"),
+					{ok, Email} = file:read_file("test/fixtures/Plain-text-only.eml"),
 					Decoded = decode(Email),
 					_Encoded = encode(Decoded),
 					%{ok, F1} = file:open("f1", [write]),
@@ -2143,7 +2153,7 @@ roundtrip_test_() ->
 		},
 		{"round trip quoted-printable email",
 			fun() ->
-					{ok, Email} = file:read_file("../testdata/testcase1"),
+					{ok, Email} = file:read_file("test/fixtures/testcase1"),
 					Decoded = decode(Email),
 					_Encoded = encode(Decoded),
 					%{ok, F1} = file:open("f1", [write]),
@@ -2184,8 +2194,8 @@ dkim_canonicalization_test_() ->
 	 end}].
 
 dkim_sign_test_() ->
-	%% * sign using testdata/dkim*.pem
-	{ok, PrivKey} = file:read_file("../testdata/dkim-rsa-private.pem"),
+	%% * sign using test/fixtures/dkim*.pem
+	{ok, PrivKey} = file:read_file("test/fixtures/dkim-rsa-private.pem"),
 	[{"Sign simple",
 	  fun() ->
 			  Email = {<<"text">>, <<"plain">>,
@@ -2206,7 +2216,7 @@ dkim_sign_test_() ->
 			  Enc = encode(Email, Options),
 			  %% This `Enc' value can be verified, for example, by Python script
 			  %% https://launchpad.net/dkimpy like:
-			  %% >>> pubkey = ''.join(open("../testdata/dkim-rsa-public.pem").read().splitlines()[1:-1])
+			  %% >>> pubkey = ''.join(open("test/fixtures/dkim-rsa-public.pem").read().splitlines()[1:-1])
 			  %% >>> dns_mock = lambda *args: 'v=DKIM1; g=*; k=rsa; p=' + pubkey
 			  %% >>> import dkim
 			  %% >>> d = dkim.DKIM(mime_message) % pass `Enc' value as 1'st argument

@@ -28,6 +28,7 @@
 -define(DEFAULT_OPTIONS, [
 		{ssl, false}, % whether to connect on 465 in ssl mode
 		{tls, if_available}, % always, never, if_available
+		{tls_options, [{versions, ['tlsv1', 'tlsv1.1', 'tlsv1.2']}]}, % used in ssl:connect, http://erlang.org/doc/man/ssl.html
 		{auth, if_available},
 		{hostname, smtp_util:guess_FQDN()},
 		{retries, 1} % how many retries per smtp host on temporary failure
@@ -121,7 +122,7 @@ send_it_nonblock(Email, Options, Callback) ->
 
 -spec send_it(Email :: {string() | binary(), [string() | binary(), ...], string() | binary() | function()}, Options :: list()) -> binary() | {'error', any(), any()}.
 send_it(Email, Options) ->
-	RelayDomain = proplists:get_value(relay, Options),
+	RelayDomain = to_string(proplists:get_value(relay, Options)),
 	MXRecords = case proplists:get_value(no_mx_lookups, Options) of
 		true ->
 			[];
@@ -477,7 +478,7 @@ do_STARTTLS(Socket, Options) ->
 	socket:send(Socket, "STARTTLS\r\n"),
 	case read_possible_multiline_reply(Socket) of
 		{ok, <<"220", _Rest/binary>>} ->
-			case catch socket:to_ssl_client(Socket, [], 5000) of
+			case catch socket:to_ssl_client(Socket, proplists:get_value(tls_options, Options, []), 5000) of
 				{ok, NewSocket} ->
 					%NewSocket;
 					{ok, Extensions} = try_EHLO(NewSocket, Options),
@@ -486,6 +487,10 @@ do_STARTTLS(Socket, Options) ->
 					quit(Socket),
 					error_logger:error_msg("Error in ssl upgrade: ~p.~n", [Reason]),
 					erlang:throw({temporary_failure, tls_failed});
+				{error, ssl_not_started} ->
+					quit(Socket),
+					error_logger:error_msg("SSL not started.~n"),
+					erlang:throw({permanent_failure, ssl_not_started});
 				_Else ->
 					%io:format("~p~n", [Else]),
 					false
@@ -521,7 +526,11 @@ connect(Host, Options) ->
 		_ ->
 			25
 	end,
-	case socket:connect(Proto, Host, Port, SockOpts, 5000) of
+	Timeout = case proplists:get_value(timeout, Options) of
+		undefined -> 5000;
+		OTimeout -> OTimeout
+	end,
+	case socket:connect(Proto, Host, Port, SockOpts, Timeout) of
 		{ok, Socket} ->
 			case read_possible_multiline_reply(Socket) of
 				{ok, <<"220", Banner/binary>>} ->
@@ -839,7 +848,7 @@ session_start_test_() ->
 								?assertMatch({ok, "STARTTLS\r\n"}, socket:recv(X, 0, 1000)),
 								gen_smtp_application:ensure_all_started(gen_smtp),
 								socket:send(X, "220 ok\r\n"),
-								{ok, Y} = socket:to_ssl_server(X, [{certfile, "../testdata/server.crt"}, {keyfile, "../testdata/server.key"}], 5000),
+								{ok, Y} = socket:to_ssl_server(X, [{certfile, "test/fixtures/server.crt"}, {keyfile, "test/fixtures/server.key"}], 5000),
 								?assertMatch({ok, "EHLO testing\r\n"}, socket:recv(Y, 0, 1000)),
 								socket:send(Y, "250-hostname\r\n250 STARTTLS\r\n"),
 								?assertMatch({ok, "MAIL FROM: <test@foo.com>\r\n"}, socket:recv(Y, 0, 1000)),
@@ -868,7 +877,7 @@ session_start_test_() ->
 								?assertMatch({ok, "STARTTLS\r\n"}, socket:recv(X, 0, 1000)),
 								gen_smtp_application:ensure_all_started(gen_smtp),
 								socket:send(X, "220 ok\r\n"),
-								{ok, Y} = socket:to_ssl_server(X, [{certfile, "../testdata/server.crt"}, {keyfile, "../testdata/server.key"}], 5000),
+								{ok, Y} = socket:to_ssl_server(X, [{certfile, "test/fixtures/server.crt"}, {keyfile, "test/fixtures/server.key"}], 5000),
 								?assertMatch({ok, "EHLO testing\r\n"}, socket:recv(Y, 0, 1000)),
 								socket:send(Y, "250-hostname\r\n250 STARTTLS\r\n"),
 								?assertMatch({ok, "MAIL FROM: <test@foo.com>\r\n"}, socket:recv(Y, 0, 1000)),
@@ -1034,7 +1043,7 @@ session_start_test_() ->
 					{"Connecting to a SSL socket directly should work",
 						fun() ->
 								gen_smtp_application:ensure_all_started(gen_smtp),
-								{ok, ListenSock} = socket:listen(ssl, 9877, [{certfile, "../testdata/server.crt"}, {keyfile, "../testdata/server.key"}]),
+								{ok, ListenSock} = socket:listen(ssl, 9877, [{certfile, "test/fixtures/server.crt"}, {keyfile, "test/fixtures/server.key"}]),
 								Options = [{relay, <<"localhost">>}, {port, 9877}, {hostname, <<"testing">>}, {ssl, true}],
 								{ok, _Pid} = send({<<"test@foo.com">>, [<<"<foo@bar.com>">>, <<"baz@bar.com">>], <<"hello world">>}, Options),
 								{ok, X} = socket:accept(ListenSock, 1000),
