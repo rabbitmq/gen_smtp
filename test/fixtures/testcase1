@@ -124,7 +124,7 @@ Content-Transfer-Encoding: 7bit
 
 
 
-*from xkcd <http://xkcd.com>*
+*from xkcd <https://xkcd.com>*
 
 --------------020405070809020207070303
 Content-Type: multipart/related;
@@ -144,7 +144,7 @@ Content-Transfer-Encoding: 7bit
 <div align="center"><img src="cid:part1.03050108.02070304@gmail.com"
  alt=""><br>
 <br>
-<b><font color="#ffff00">from <a href="http://xkcd.com">xkcd</a></font></b><br>
+<b><font color="#ffff00">from <a href="https://xkcd.com">xkcd</a></font></b><br>
 </div>
 </body>
 </html>

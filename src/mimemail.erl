@@ -726,7 +726,7 @@ encode_parameter({X, Y}) ->
 		false -> [X, $=, Y]
 	end.
 
-% See also: http://www.ietf.org/rfc/rfc2045.txt section 5.1
+% See also: https://www.ietf.org/rfc/rfc2045.txt section 5.1
 escape_tspecial(<<>>, false, _Acc) ->
 	false;
 escape_tspecial(<<>>, IsSpecial, Acc) ->
