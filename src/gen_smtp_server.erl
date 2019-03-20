@@ -21,7 +21,7 @@
 %%% SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 %% @doc A non-blocking tcp listener for SMTP connections. Based on the tcp_listener module by Serge
-%% Aleynikov [http://www.trapexit.org/Building_a_Non-blocking_TCP_server_using_OTP_principles]
+%% Aleynikov [https://erlangcentral.org/wiki/index.php/Building_a_Non-blocking_TCP_server_using_OTP_principles]
 
 -module(gen_smtp_server).
 -behaviour(gen_server).

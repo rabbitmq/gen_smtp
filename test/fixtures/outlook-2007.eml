@@ -1,7 +1,7 @@
 Message-ID: <000001ca269e$bed3a4b0$3c7aee10$@com>
 From: "Jack Danger Canty" <local@localhost.com>
 To: <gen_smtp@localhost.com>
-Subject: outlook sending to http://jackcanty.com
+Subject: outlook sending to https://jackcanty.com
 Date: Wed, 26 Aug 2009 15:44:00 -0700
 MIME-Version: 1.0
 Content-Type: multipart/alternative;
@@ -41,7 +41,7 @@ Content-Transfer-Encoding: quoted-printable
 xmlns:o=3D"urn:schemas-microsoft-com:office:office" =
 xmlns:w=3D"urn:schemas-microsoft-com:office:word" =
 xmlns:m=3D"http://schemas.microsoft.com/office/2004/12/omml" =
-xmlns=3D"http://www.w3.org/TR/REC-html40">
+xmlns=3D"https://www.w3.org/TR/REC-html40">
 
 <head>
 <META HTTP-EQUIV=3D"Content-Type" CONTENT=3D"text/html; =
